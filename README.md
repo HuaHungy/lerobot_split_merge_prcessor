@@ -5,20 +5,29 @@
 - 合并（merge）：从多个源数据集中选择并合并为一个统一的数据集
 
 本项目结构：
-- `merge.py`：函数库，提供选择、统计合并、视频与数据拷贝等底层能力
-- `split_merge_dataset.py`：命令行入口，解析参数并调用 `merge.py` 的函数
+- `lerobot_dataset_lib.py`：函数库，提供选择、统计合并、视频与数据拷贝、维度与索引对齐等底层能力
+- `split_merge_dataset.py`：命令行入口，解析参数并调用 `lerobot_dataset_lib.py` 的函数
 
 ## 安装与环境
 
-运行时需要以下 Python 包：
-- pandas（以及 Parquet 后端：pyarrow 或 fastparquet）
+运行时需要以下环境与包：
+- Python 3.8+（推荐 3.10）
+- pandas（用于读取/写入 Parquet）
+- 至少一个 Parquet 后端：pyarrow 或 fastparquet（二选一或都安装）
 - numpy
 
-示例安装：
+使用 pip 安装：
 ```bash
-pip install pandas numpy pyarrow
+pip install -U pandas numpy pyarrow fastparquet
 ```
 
+可选：使用 conda 创建隔离环境：
+```bash
+conda create -n lerobot-dp python=3.10
+conda activate lerobot-dp
+conda install -c conda-forge pandas numpy pyarrow fastparquet
+```
+备注：若未安装任何 Parquet 引擎，pandas 的 `read_parquet`/`to_parquet` 将失败。
 ## 使用
 
 命令行入口：
@@ -75,39 +84,52 @@ python split_merge_dataset.py split \
 
 ### merge 参数（合并）
 
-- `--sources`：源数据集路径列表（必填，支持多个路径）
+- `--sources`：源数据集路径列表（可选，支持多个路径）
+- `--sources_dir`：源数据集父目录（扫描一、二级子目录，自动发现含 `meta/info.json` 的 Lerobot 数据集）
 - `--output`：输出数据集路径（必填）
 - `--max_episodes`：最大 episode 限制（从整体合并后按数量截断）
-- `--fps`：输出数据集的帧率；未提供时从第一个源的 `meta/info.json` 读取
-- `--max_dim`：目标维度；未提供时使用所有源数据集中的最大维度
-- `--start_entries`：起始帧偏移（跨多源整体跳过前 N 帧）
+- `--fps`：输出数据集的帧率；未提供时从第一个有效源的 `meta/info.json` 读取，缺失则回退为 20
+- `--max_dim`：目标维度；未提供时使用所有源数据集中的最大维度统一并零填充
+- `--start_entries`：起始帧偏移（跨多源整体跳过前 N 帧，按整 episode 对齐）
 - `--start_episodes`：起始 episode 偏移（跨多源整体跳过前 N 个 episode）
 
-示例（多源合并）：
+示例（显式列出多源）：
 ```bash
 python split_merge_dataset.py merge \
   --sources /home/kemove/robotics-data-processor/lerobot/basket_storage_banana \
             /home/kemove/robotics-data-processor/lerobot/basket_storage_fruit \
             /home/kemove/robotics-data-processor/lerobot/plate_storage \
-            /home/kemove/robotics-data-processor/lerobot/stack_baskets \
-            /home/kemove/robotics-data-processor/lerobot/twist_bottle_cap \
-            /home/kemove/robotics-data-processor/lerobot/zip_up_the_document_bag \
   --output /home/kemove/robotics-data-processor/lerobot/agilex_merged \
   --max_episodes 550 \
   --fps 20 \
   --max_dim 32
 ```
 
-示例（跨多源起始偏移 + 合并数量限制）：
+示例（自动发现一二级子目录）：
 ```bash
 python split_merge_dataset.py merge \
-  --sources /path/to/ds1 /path/to/ds2 /path/to/ds3 \
+  --sources_dir /mnt/nas/robodatasets \
+  --output /mnt/nas/merged_ds \
+  --max_episodes 300 \
+  --fps 20 \
+  --max_dim 32
+```
+
+示例（起始偏移 + 合并数量限制）：
+```bash
+python split_merge_dataset.py merge \
+  --sources_dir /path/to/datasets_root \
   --output /path/to/merged \
   --start_entries 5000 \
   --max_episodes 500 \
   --fps 20 \
   --max_dim 32
 ```
+
+### 自动发现规则
+- 1级：检查 `sources_dir` 的直接子目录是否包含 `meta/info.json`；存在则视为数据集
+- 2级：若 1 级子目录不是数据集，则检查其子目录是否包含 `meta/info.json`
+- 结果集合会去重并排序；若未发现任何有效数据集则报错
 
 ## 输出内容
 
