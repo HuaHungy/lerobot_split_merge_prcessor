@@ -7,17 +7,16 @@
 使用示例:
 # 拆分模式 - 按episode数量
 python split_merge_dataset.py split \
-   --input /home/kemove/robotics-data-processor/lerobot/basket_storage_banana \
-   --output /home/kemove/robotics-data-processor/lerobot/test2 \
-   --max_episodes 5 \
-   --fps 20 
+   --input /mnt/nas/synnas/docker2/robocoin-datasets/ruantong_a2d_box_storage_e \
+   --output /mnt/nas/synnas/docker2/robocoin-datasets/ruantong_a2d_box_storage_e_fix \
+   --max_episodes 58 
 
 # 拆分模式 - 按帧数
 python split_merge_dataset.py split \
-   --input /home/kemove/robotics-data-processor/lerobot/agilex_merged \
+   --input /home/kemove/robotics-data-processor/lerobot/test \
    --output /home/kemove/robotics-data-processor/lerobot/test \
    --start_episodes 2 \
-   --max_entries 5 \
+   --max_entries  \
    --fps 20
 
 # 合并模式
@@ -49,6 +48,17 @@ python split_merge_dataset.py merge \
     --output /path/to/merged \
     --start_frames 5000 \
     --max_episodes 500
+
+# 合并：扫描一、二级子目录并合并
+python split_merge_dataset.py merge \
+    --sources_dir /home/kemove/mcap_to_lerobot/Industry_Move_industrial_parts_to_different_plastic_boxes \
+    --output /home/kemove/mcap_to_lerobot/Industry_Move_industrial_parts_to_different_plastic_boxes_merged 
+
+# 同时指定部分路径并自动发现其余 
+python split_merge_dataset.py merge \
+    --sources /data/ds_a /data/ds_b \
+    --sources_dir /data/more_datasets \
+    --output /data/merge
 """
 
 import argparse
@@ -68,11 +78,30 @@ from lerobot_dataset_lib import (
     copy_videos,
     copy_data_files,
     merge_stats,
+    get_info,
+    select_episodes,
+    write_meta_and_copy,
 )
 
 def mode_merge(args: argparse.Namespace):
     """合并模式：将多个数据集合并为一个（CLI 调用库函数）。"""
-    source_folders = args.sources
+    source_folders = list(args.sources) if getattr(args, "sources", None) else []
+    src_dir = getattr(args, "sources_dir", None)
+    if src_dir:
+        for name in os.listdir(src_dir):
+            p = os.path.join(src_dir, name)
+            if not os.path.isdir(p):
+                continue
+            if os.path.exists(os.path.join(p, "meta", "info.json")):
+                source_folders.append(p)
+                continue
+            for name2 in os.listdir(p):
+                p2 = os.path.join(p, name2)
+                if os.path.isdir(p2) and os.path.exists(os.path.join(p2, "meta", "info.json")):
+                    source_folders.append(p2)
+    source_folders = sorted(set(source_folders))
+    if not source_folders:
+        raise RuntimeError("No valid sources found")
     fps = args.fps if args.fps is not None else get_info(source_folders[0]).get("fps", 20)
     max_episodes = args.max_episodes
     max_dim_cli = args.max_dim
@@ -178,7 +207,8 @@ def main():
 
     # 合并模式
     merge_parser = subparsers.add_parser("merge", help="合并数据集")
-    merge_parser.add_argument("--sources", nargs="+", required=True, help="源数据集路径列表")
+    merge_parser.add_argument("--sources", nargs="+", required=False, help="源数据集路径列表")
+    merge_parser.add_argument("--sources_dir", help="源数据集父目录（扫描一二级子目录）")
     merge_parser.add_argument("--output", required=True, help="输出数据集路径")
     merge_parser.add_argument("--max_episodes", type=int, help="最大episode数量限制")
     merge_parser.add_argument("--fps", type=int, help="帧率设置")
